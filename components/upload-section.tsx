@@ -3,6 +3,10 @@ import { useState } from 'react';
 import { supabase } from '@/lib/superbase';
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { v4 as uuidv4 } from 'uuid';
+import { PostgrestError } from "@supabase/supabase-js";
+import { StorageError } from "@supabase/storage-js";
+import { useRouter } from "next/navigation";
 
 export default function UploadSection({
                                           className,
@@ -11,40 +15,77 @@ export default function UploadSection({
     const [mediumFile, setMediumFile] = useState<File | null>(null);
     const [watermarkFile, setWatermarkFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
+    const router = useRouter();
 
 
-    const handleUpload = async () => {
+    const handleUploadFile = async () => {
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!user) {
+            alert('You must be logged in');
+            return;
+        }
         if (!mediumFile || !watermarkFile) return alert('Select both files!');
 
         setUploading(true);
+        const userId = user.id;
+        const uuid = uuidv4();
 
-        const timestamp = Date.now();
-        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const fileExtension = mediumFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const watermarkExtension = watermarkFile.name.split('.').pop()?.toLowerCase() || 'jpg';
 
-        if (!userId) {
-            alert('User not logged in!');
-            return;
-        }
+        const fileMimeType = mediumFile.type || `image/${fileExtension}`;
+        const watermarkMimeType = watermarkFile.type || `image/${watermarkExtension}`;
 
-        const mediumPath = `public/${userId}/mediums/${timestamp}-${mediumFile.name}`;
-        const watermarkPath = `public/${userId}/watermarks/${timestamp}-${watermarkFile.name}`;
+        const filePath =  `public/${userId}/mediums/${uuid}.${fileExtension}`;
+        const watermarkPath = `public/${userId}/watermarks/${uuid}.${watermarkExtension}`;
 
-        const {error: mediumErr} = await supabase.storage
+        const { error: uploadFileError } = await supabase
+            .storage
             .from('watersnap')
-            .upload(mediumPath, mediumFile);
+            .upload(filePath, mediumFile);
 
-        const {error: watermarkErr} = await supabase.storage
+        const { error: uploadWatermarkError } = await supabase
+            .storage
             .from('watersnap')
             .upload(watermarkPath, watermarkFile);
 
-        if (mediumErr || watermarkErr) {
-            alert('Sending error!');
-        } else {
-            alert('Sent!');
+        if (uploadFileError){
+            throwAlert(uploadFileError)
+        }
+        if (uploadWatermarkError){
+            throwAlert(uploadWatermarkError)
         }
 
+        const { error: insertFileError } =  await supabase
+            .from('media')
+            .insert({
+                format: fileMimeType,
+                user: userId,
+                media: uuid,
+                created_at: new Date().toISOString()
+            });
+        const { error: insertWatermarkError } = await supabase
+                .from('watermarks')
+                .insert({
+                    format: watermarkMimeType,
+                    user: userId,
+                    media: uuid,
+                    created_at: new Date().toISOString()
+                });
+
+        if (insertFileError) {throwAlert(insertFileError);}
+        if (insertWatermarkError) {throwAlert(insertFileError);}
+
         setUploading(false);
-    };
+        alert('Upload + DB insert success!');
+        router.push(`/editor?medium=${uuid}&watermark=${uuid}`);
+    }
+
+    const throwAlert = (err:  PostgrestError | StorageError | null) => {
+        console.error(err);
+        alert('Insert failed');
+        return;
+    }
 
     return (
         <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -96,7 +137,7 @@ export default function UploadSection({
 
                 <button
                     className="mt-6 w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-                    onClick={handleUpload}
+                    onClick={handleUploadFile}
                     disabled={uploading}
                 >
                     {uploading ? 'Processing...' : 'Send'}
