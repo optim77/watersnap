@@ -46,7 +46,6 @@ export default function EditorCanvas() {
 
     const [mediumUrl, setMediumUrl] = useState<string | null>(null);
     const [watermarkUrl, setWatermarkUrl] = useState<string | null>(null);
-    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     const watermarkRef = useRef<Konva.Image>(null);
     const transformerRef = useRef<Konva.Transformer>(null);
@@ -54,12 +53,13 @@ export default function EditorCanvas() {
     const [mediumImage] = useImage(mediumUrl || '', 'anonymous');
     const [watermarkImage] = useImage(watermarkUrl || '', 'anonymous');
     const [ready, setReady] = useState(false);
+    const [opacity, setOpacity] = useState(1);
+    const [watermarkScale, setWatermarkScale] = useState(1);
+    const [rotation, setRotation] = useState(0);
 
     const stageRef = useRef<Konva.Stage>(null);
 
-    useEffect(() => {
-        setDimensions({ width: window.innerWidth, height: window.innerHeight });
-    }, []);
+
     useEffect(() => {
         if (mediumImage && watermarkImage) {
             setReady(true);
@@ -136,10 +136,21 @@ export default function EditorCanvas() {
             alert('Upload failed');
         }
     };
+    const MAX_WIDTH = 1280;
+    const MAX_HEIGHT = 720;
+
+    const scaleX = mediumImage.width > MAX_WIDTH ? MAX_WIDTH / mediumImage.width : 1;
+    const scaleY = mediumImage.height > MAX_HEIGHT ? MAX_HEIGHT / mediumImage.height : 1;
+    const scale = Math.min(scaleX, scaleY);
 
     return (
-        <div className="w-full h-screen bg-gray-100">
-            <Stage ref={stageRef} width={dimensions.width} height={dimensions.height}>
+        <div className="w-full h-screen bg-blend-darken">
+            <Stage
+                ref={stageRef}
+                width={mediumImage.width * scale}
+                height={mediumImage.height * scale}
+                scale={{x: scale, y: scale}}
+            >
                 <Layer>
                     <KonvaImage image={mediumImage}/>
                     {watermarkImage && (
@@ -150,6 +161,9 @@ export default function EditorCanvas() {
                                 ref={watermarkRef}
                                 x={50}
                                 y={50}
+                                opacity={opacity}
+                                scale={{ x: watermarkScale, y: watermarkScale }}
+                                rotation={rotation}
                             />
                             <Transformer ref={transformerRef}/>
                         </>
@@ -158,6 +172,51 @@ export default function EditorCanvas() {
 
 
             </Stage>
+
+
+            <div className="p-4 bg-blend-darken shadow-md rounded mt-4 flex gap-6 items-center">
+                <div>
+                    <label className="block text-sm font-medium text-white">Opacity</label>
+                    <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={opacity}
+                        onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                        className="w-40"
+                    />
+                    <div className="text-xs text-white mt-1 text-center">{opacity.toFixed(2)}</div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-white">Scale</label>
+                    <input
+                        type="range"
+                        min={0.1}
+                        max={3}
+                        step={0.1}
+                        value={watermarkScale}
+                        onChange={(e) => setWatermarkScale(parseFloat(e.target.value))}
+                        className="w-40"
+                    />
+                    <div className="text-xs text-white mt-1 text-center">{watermarkScale.toFixed(1)}×</div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-white">Rotation</label>
+                    <input
+                        type="range"
+                        min={-180}
+                        max={180}
+                        step={1}
+                        value={rotation}
+                        onChange={(e) => setRotation(parseInt(e.target.value))}
+                        className="w-40"
+                    />
+                    <div className="text-xs text-white mt-1 text-center">{rotation}°</div>
+                </div>
+            </div>
+
             <button
                 onClick={handleExport}
                 disabled={!ready}

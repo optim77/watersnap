@@ -52,6 +52,15 @@ export default {
           "5": "hsl(var(--chart-5))",
         },
       },
+      animation: {
+        'fade-in': 'fadeIn 1s ease-out',
+      },
+      keyframes: {
+        fadeIn: {
+          from: { opacity: "0", transform: 'translateY(-10px)' },
+          to: { opacity: "1", transform: 'translateY(0)' },
+        },
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
