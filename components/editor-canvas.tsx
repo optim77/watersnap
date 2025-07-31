@@ -4,40 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Image as KonvaImage, Transformer } from 'react-konva';
 import useImage from 'use-image';
 import Konva from 'konva';
-import { useSearchParams } from 'next/navigation';
+import { redirect, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/superbase';
 import { v4 as uuidv4 } from 'uuid';
-
-async function uploadCanvasImageToSupabase(
-    canvas: HTMLCanvasElement,
-    userId: string,
-    imageId: string,
-    supabase: any
-) {
-    return new Promise(async (resolve, reject) => {
-        canvas.toBlob(async (blob) => {
-            if (!blob) {
-                reject(new Error('Blob conversion failed'));
-                return;
-            }
-
-            const filePath = `public/${userId}/processed/${imageId}.png`;
-
-            const { error } = await supabase.storage
-                .from('watersnap')
-                .upload(filePath, blob, {
-                    contentType: 'image/png',
-                    upsert: true
-                });
-
-            if (error) {
-                reject(error);
-            } else {
-                resolve(filePath);
-            }
-        }, 'image/png');
-    });
-}
+import { uploadCanvasImageToSupabase } from "@/components/editor/uploadCanvasImageToSupabase";
+import toast from "react-hot-toast";
+import ImageControls from "@/components/editor/image-controls";
+import WatermarkControls from "@/components/editor/watermark-controls";
 
 export default function EditorCanvas() {
     const searchParams = useSearchParams();
@@ -56,7 +29,20 @@ export default function EditorCanvas() {
     const [opacity, setOpacity] = useState(1);
     const [watermarkScale, setWatermarkScale] = useState(1);
     const [rotation, setRotation] = useState(0);
+    const [contrast, setContrast] = useState(0);
+    const [brightness, setBrightness] = useState(0);
+    const [saturation, setSaturation] = useState(0);
+    const [value, setValue] = useState(0);
+    const [alpha, setAlpha] = useState(0);
 
+    const [wmContrast, setWmContrast] = useState(0);
+    const [wmBrightness, setWmBrightness] = useState(0);
+    const [wmSaturation, setWmSaturation] = useState(0);
+    const [wmValue, setWmValue] = useState(0);
+    const [wmAlpha, setWmAlpha] = useState(0);
+
+
+    const mediumRef = useRef<Konva.Image>(null);
     const stageRef = useRef<Konva.Stage>(null);
 
 
@@ -65,6 +51,46 @@ export default function EditorCanvas() {
             setReady(true);
         }
     }, [mediumImage, watermarkImage]);
+
+
+    useEffect(() => {
+        if (mediumImage && mediumRef.current) {
+            const img = mediumRef.current;
+            img.cache();
+            img.filters([
+                Konva.Filters.Contrast,
+                Konva.Filters.Brighten,
+                Konva.Filters.HSV,
+                Konva.Filters.RGBA,
+            ]);
+            img.contrast(contrast);
+            img.brightness(brightness);
+            img.saturation(saturation);
+            img.value(value);
+            img.alpha(alpha);
+            img.getLayer()?.batchDraw();
+        }
+    }, [contrast, brightness, saturation, value, alpha, mediumImage]);
+
+    useEffect(() => {
+        if (watermarkRef.current) {
+            watermarkRef.current.cache();
+            watermarkRef.current.filters([
+                Konva.Filters.Contrast,
+                Konva.Filters.Brighten,
+                Konva.Filters.HSV,
+                Konva.Filters.RGBA
+            ]);
+
+            watermarkRef.current.contrast(wmContrast);
+            watermarkRef.current.brightness(wmBrightness);
+            watermarkRef.current.saturation(wmSaturation);
+            watermarkRef.current.value(wmValue);
+            watermarkRef.current.alpha(wmAlpha);
+
+            watermarkRef.current.getLayer()?.batchDraw();
+        }
+    }, [wmContrast, wmBrightness, wmSaturation, wmValue, wmAlpha]);
 
     useEffect(() => {
         async function loadUrls() {
@@ -108,10 +134,24 @@ export default function EditorCanvas() {
         if (!stageRef.current) return;
 
         const user = (await supabase.auth.getUser()).data.user;
-        if (!user) return alert('Lack of user!');
+        if (!user) return redirect("/auth/login");
 
         const imageId = uuidv4();
+
+        const transformerNode = transformerRef.current;
+        if (transformerNode) {
+            transformerNode.nodes([]);
+            transformerNode.getLayer()?.batchDraw();
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
         const canvas = stageRef.current.toCanvas();
+
+        if (transformerNode && watermarkRef.current) {
+            transformerNode.nodes([watermarkRef.current]);
+            transformerNode.getLayer()?.batchDraw();
+        }
 
         try {
             await uploadCanvasImageToSupabase(canvas, user.id, imageId, supabase);
@@ -127,15 +167,16 @@ export default function EditorCanvas() {
 
             if (dbError) {
                 console.error(dbError);
-                return alert('Error during saving to database');
+                toast.error('Error during saving to database');
             }
 
             window.location.href = `/preview?image=${imageId}`;
         } catch (e) {
             console.error(e);
-            alert('Upload failed');
+            toast.error('Upload failed');
         }
     };
+
     const MAX_WIDTH = 1280;
     const MAX_HEIGHT = 720;
 
@@ -144,7 +185,7 @@ export default function EditorCanvas() {
     const scale = Math.min(scaleX, scaleY);
 
     return (
-        <div className="w-full h-screen bg-blend-darken">
+        <div className="w-full h-screen bg-blend-darken mb-20">
             <Stage
                 ref={stageRef}
                 width={mediumImage.width * scale}
@@ -152,7 +193,7 @@ export default function EditorCanvas() {
                 scale={{x: scale, y: scale}}
             >
                 <Layer>
-                    <KonvaImage image={mediumImage}/>
+                    <KonvaImage image={mediumImage} ref={mediumRef}/>
                     {watermarkImage && (
                         <>
                             <KonvaImage
@@ -162,61 +203,45 @@ export default function EditorCanvas() {
                                 x={50}
                                 y={50}
                                 opacity={opacity}
-                                scale={{ x: watermarkScale, y: watermarkScale }}
+                                scale={{x: watermarkScale, y: watermarkScale}}
                                 rotation={rotation}
                             />
                             <Transformer ref={transformerRef}/>
                         </>
                     )}
                 </Layer>
-
-
             </Stage>
 
 
-            <div className="p-4 bg-blend-darken shadow-md rounded mt-4 flex gap-6 items-center">
-                <div>
-                    <label className="block text-sm font-medium text-white">Opacity</label>
-                    <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={opacity}
-                        onChange={(e) => setOpacity(parseFloat(e.target.value))}
-                        className="w-40"
-                    />
-                    <div className="text-xs text-white mt-1 text-center">{opacity.toFixed(2)}</div>
-                </div>
+            <WatermarkControls
+                opacity={opacity}
+                setOpacity={setOpacity}
+                scale={watermarkScale}
+                setScale={setWatermarkScale}
+                rotation={rotation}
+                setRotation={setRotation}
+                contrast={wmContrast}
+                setContrast={setWmContrast}
+                brightness={wmBrightness}
+                setBrightness={setWmBrightness}
+                saturation={wmSaturation}
+                setSaturation={setWmSaturation}
+                value={wmValue}
+                setValue={setWmValue}
+                alpha={wmAlpha}
+                setAlpha={setWmAlpha} />
 
-                <div>
-                    <label className="block text-sm font-medium text-white">Scale</label>
-                    <input
-                        type="range"
-                        min={0.1}
-                        max={3}
-                        step={0.1}
-                        value={watermarkScale}
-                        onChange={(e) => setWatermarkScale(parseFloat(e.target.value))}
-                        className="w-40"
-                    />
-                    <div className="text-xs text-white mt-1 text-center">{watermarkScale.toFixed(1)}×</div>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-white">Rotation</label>
-                    <input
-                        type="range"
-                        min={-180}
-                        max={180}
-                        step={1}
-                        value={rotation}
-                        onChange={(e) => setRotation(parseInt(e.target.value))}
-                        className="w-40"
-                    />
-                    <div className="text-xs text-white mt-1 text-center">{rotation}°</div>
-                </div>
-            </div>
-
+                <ImageControls
+                    contrast={contrast}
+                    setContrast={setContrast}
+                    brightness={brightness}
+                    setBrightness={setBrightness}
+                    saturation={saturation}
+                    setSaturation={setSaturation}
+                    value={value}
+                    setValue={setValue}
+                    alpha={alpha}
+                    setAlpha={setAlpha} />
             <button
                 onClick={handleExport}
                 disabled={!ready}
