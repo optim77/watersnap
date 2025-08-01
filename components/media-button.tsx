@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 export function MediaButton() {
     return (
         <>
-            <Link href="/resources">
+            <Link href="/files">
                 <Button className="flex items-center gap-2" size="sm">
                     <svg xmlns="http://www.w3.org/2000/svg"  width="800px"
                          height="800px" viewBox="0 0 20 20" version="1.1">
