@@ -59,7 +59,7 @@ export default function PreviewPage() {
     return (
         <main className="min-h-screen p-8 flex flex-col items-center  text-center bg-blend-darken">
             <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-500 animate-fade-in mb-6">
-                Your Watermarked Image!
+                Your Image
             </h1>
 
             {loading ? (

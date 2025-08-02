@@ -6,12 +6,8 @@ import toast from 'react-hot-toast';
 import { ProcessedFileGrid } from "@/components/files/processed-field-grid";
 import { FileGrid } from "@/components/files/files-field-grid";
 import { Spinner } from "@/components/ui/spinner";
+import { FileItem } from "@/components/files/types/file";
 
-type FileItem = {
-    url: string;
-    name: string;
-    path: string;
-};
 
 export default function MyFiles() {
     const [viewMode, setViewMode] = useState<'processed' | 'edit'>('processed');
@@ -116,7 +112,9 @@ export default function MyFiles() {
                             items={mediums}
                             selected={selectedMedium}
                             onSelect={setSelectedMedium}
-                            onDelete={(deleted) => setProcessed(prev => prev.filter(p => p.name !== deleted.name))}
+                            onDelete={(deleted) =>
+                                setMediums((prev) => prev.filter((p) => p.path !== deleted.path))
+                            }
                         />
                     </div>
 
@@ -126,7 +124,9 @@ export default function MyFiles() {
                             items={watermarks}
                             selected={selectedWatermark}
                             onSelect={setSelectedWatermark}
-                            onDelete={(deleted) => setProcessed(prev => prev.filter(p => p.name !== deleted.name))}
+                            onDelete={(deleted) =>
+                                setWatermarks((prev) => prev.filter((p) => p.path !== deleted.path))
+                            }
                         />
                     </div>
                 </section>
@@ -139,7 +139,7 @@ export default function MyFiles() {
                         disabled={!selectedMedium || !selectedWatermark}
                         className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded text-white disabled:opacity-40"
                     >
-                        Połącz wybrane
+                        Let&#39;s create!
                     </button>
                 </div>
             )}
