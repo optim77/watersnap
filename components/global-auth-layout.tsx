@@ -4,6 +4,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/lib/utils";
 import { MarkButton } from "@/components/mark-button";
 import { MediaButton } from "@/components/media-button";
+import { CreditIndicator } from "@/components/credit-indicator";
 
 export default function GlobalAuthLayout({
                                           children,
@@ -20,8 +21,11 @@ export default function GlobalAuthLayout({
                                 {/*<DeployButton/>*/}
                                 <MarkButton />
                                 <MediaButton />
+
                             </div>
+
                         </div>
+                        <CreditIndicator />
                         {!hasEnvVars ? <EnvVarWarning/> : <AuthButton/>}
                     </div>
                 </nav>

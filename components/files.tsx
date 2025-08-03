@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/superbase';
-import toast from 'react-hot-toast';
 import { ProcessedFileGrid } from "@/components/files/processed-field-grid";
 import { FileGrid } from "@/components/files/files-field-grid";
 import { Spinner } from "@/components/ui/spinner";
 import { FileItem } from "@/components/files/types/file";
+import { throwAlert } from "@/components/utils/throw-alert";
 
+const PAGE_SIZE = 20;
 
 export default function MyFiles() {
     const [viewMode, setViewMode] = useState<'processed' | 'edit'>('processed');
@@ -18,53 +19,116 @@ export default function MyFiles() {
 
     const [selectedMedium, setSelectedMedium] = useState<FileItem | null>(null);
     const [selectedWatermark, setSelectedWatermark] = useState<FileItem | null>(null);
+
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchAll = async () => {
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return;
+    const [mediumPage, setMediumPage] = useState(0);
+    const [watermarkPage, setWatermarkPage] = useState(0);
+    const [processedPage, setProcessedPage] = useState(0);
+
+    const [hasMoreMediums, setHasMoreMediums] = useState(true);
+    const [hasMoreWatermarks, setHasMoreWatermarks] = useState(true);
+    const [hasMoreProcessed, setHasMoreProcessed] = useState(true);
+
+    const observerRef = useRef<HTMLDivElement | null>(null);
+
+    const uidRef = useRef<string | null>(null);
+
+    const fetchInitialUser = async () => {
+        const user = (await supabase.auth.getUser()).data.user;
+        if (user) {
+            uidRef.current = user.id;
             await Promise.all([
-                loadFiles('processed', setProcessed, user.id),
-                loadFiles('mediums', setMediums, user.id),
-                loadFiles('watermarks', setWatermarks, user.id),
-            ]).then(() => {
-                setLoading(false);
-            });
-        };
-        fetchAll();
+                fetchNextFiles('mediums'),
+                fetchNextFiles('watermarks'),
+                fetchNextFiles('processed'),
+            ]);
+        }
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        fetchInitialUser();
     }, []);
 
-    const loadFiles = async (
-        folder: 'processed' | 'mediums' | 'watermarks',
-        setter: (files: FileItem[]) => void,
-        uid: string
-    ) => {
+    const fetchNextFiles = async (folder: 'processed' | 'mediums' | 'watermarks') => {
+
+        const uid = uidRef.current;
+        if (!uid) return;
+
+        const page =
+            folder === 'mediums'
+                ? mediumPage
+                : folder === 'watermarks'
+                    ? watermarkPage
+                    : processedPage;
+
         const path = `public/${uid}/${folder}`;
         const { data, error } = await supabase.storage.from('watersnap').list(path);
 
         if (error) {
-            toast.error(`Error during loading the folder: ${folder}`);
+            throwAlert(error);
             return;
         }
 
-        const files = await Promise.all(
-            (data || [])
-                .filter((f) => f.name.match(/\.(jpe?g|png)$/i))
-                .map(async (file) => {
-                    const { data: signed } = await supabase.storage
-                        .from('watersnap')
-                        .createSignedUrl(`${path}/${file.name}`, 60 * 10);
-                    return {
-                        url: signed?.signedUrl || '',
-                        name: file.name,
-                        path: `${path}/${file.name}`,
-                    };
-                })
+        const filtered = (data || [])
+            .filter((f) => f.name.match(/\.(jpe?g|png)$/i))
+            .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+        const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+        const withSignedUrls = await Promise.all(
+            pageItems.map(async (file) => {
+                const { data: signed } = await supabase.storage
+                    .from('watersnap')
+                    .createSignedUrl(`${path}/${file.name}`, 600);
+
+                return {
+                    url: signed?.signedUrl || '',
+                    name: file.name,
+                    path: `${path}/${file.name}`,
+                    updated_at: file.updated_at,
+                };
+            })
         );
 
-        setter(files);
+        if (folder === 'mediums') {
+            setMediums(prev => [...prev, ...withSignedUrls]);
+            setMediumPage(prev => prev + 1);
+            if (pageItems.length < PAGE_SIZE) setHasMoreMediums(false);
+        } else if (folder === 'watermarks') {
+            setWatermarks(prev => [...prev, ...withSignedUrls]);
+            setWatermarkPage(prev => prev + 1);
+            if (pageItems.length < PAGE_SIZE) setHasMoreWatermarks(false);
+        } else {
+            setProcessed(prev => [...prev, ...withSignedUrls]);
+            setProcessedPage(prev => prev + 1);
+            if (pageItems.length < PAGE_SIZE) setHasMoreProcessed(false);
+        }
     };
+
+    const handleObserver = useCallback(
+        (entries: IntersectionObserverEntry[]) => {
+            const entry = entries[0];
+            if (entry.isIntersecting) {
+                if (viewMode === 'processed' && hasMoreProcessed) {
+                    fetchNextFiles('processed');
+                } else if (viewMode === 'edit') {
+                    if (hasMoreMediums) fetchNextFiles('mediums');
+                    if (hasMoreWatermarks) fetchNextFiles('watermarks');
+                }
+            }
+        },
+        [viewMode, hasMoreProcessed, hasMoreMediums, hasMoreWatermarks]
+    );
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(handleObserver, { threshold: 1 });
+        if (observerRef.current) observer.observe(observerRef.current);
+        return () => {
+            if (observerRef.current) observer.unobserve(observerRef.current);
+        };
+    }, [handleObserver]);
 
     const startEditing = () => {
         if (!selectedMedium || !selectedWatermark) return;
@@ -72,7 +136,6 @@ export default function MyFiles() {
         const watermarkId = selectedWatermark.name.split('.')[0];
         window.location.href = `/editor?medium=${mediumId}&watermark=${watermarkId}`;
     };
-
 
     return (
         <main className="bg-gray-900 text-white p-6 min-w-[1000px] min-h-[500px]">
@@ -101,7 +164,9 @@ export default function MyFiles() {
                     <ProcessedFileGrid
                         items={processed}
                         showDownload
-                        onDelete={(deleted) => setProcessed(prev => prev.filter(p => p.name !== deleted.name))}
+                        onDelete={(deleted) =>
+                            setProcessed(prev => prev.filter(p => p.name !== deleted.name))
+                        }
                     />
                 </section>
             ) : (
@@ -131,6 +196,10 @@ export default function MyFiles() {
                     </div>
                 </section>
             )}
+
+            <div ref={observerRef} className="h-8 mt-8 flex justify-center items-center">
+                {(hasMoreProcessed || hasMoreMediums || hasMoreWatermarks) && <Spinner />}
+            </div>
 
             {viewMode === 'edit' && (
                 <div className="text-center mt-6">

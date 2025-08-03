@@ -5,12 +5,11 @@ import { supabase } from '@/lib/superbase';
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { v4 as uuidv4 } from 'uuid';
-import { PostgrestError } from "@supabase/supabase-js";
-import { StorageError } from "@supabase/storage-js";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { getUserCredit } from "@/components/utils/get-user-credit";
 import { decreaseCredit } from "@/components/utils/decrease-credit";
+import { throwAlert } from "@/components/utils/throw-alert";
 
 export default function UploadSection({ className, ...props }: React.ComponentPropsWithoutRef<"div">) {
     const [mediumFile, setMediumFile] = useState<File | null>(null);
@@ -45,13 +44,14 @@ export default function UploadSection({ className, ...props }: React.ComponentPr
 
         setUploading(true);
         const userId = user.id;
-        const uuid = uuidv4();
+        const uuidMedium = uuidv4();
+        const uuidWatermark = uuidv4();
 
         const mediumExt = mediumFile.name.split('.').pop()?.toLowerCase() || 'jpg';
         const watermarkExt = watermarkFile.name.split('.').pop()?.toLowerCase() || 'png';
 
-        const filePath = `public/${userId}/mediums/${uuid}.${mediumExt}`;
-        const watermarkPath = `public/${userId}/watermarks/${uuid}.${watermarkExt}`;
+        const filePath = `public/${userId}/mediums/${uuidMedium}.${mediumExt}`;
+        const watermarkPath = `public/${userId}/watermarks/${uuidWatermark}.${watermarkExt}`;
 
         const { error: uploadFileError } = await supabase.storage.from('watersnap').upload(filePath, mediumFile);
         const { error: uploadWatermarkError } = await supabase.storage.from('watersnap').upload(watermarkPath, watermarkFile);
@@ -62,14 +62,14 @@ export default function UploadSection({ className, ...props }: React.ComponentPr
         const { error: insertFileError } = await supabase.from('media').insert({
             format: mediumFile.type,
             user: userId,
-            media: uuid,
+            media: uuidMedium,
             created_at: new Date().toISOString()
         });
 
         const { error: insertWatermarkError } = await supabase.from('watermarks').insert({
             format: watermarkFile.type,
             user: userId,
-            media: uuid,
+            media: uuidWatermark,
             created_at: new Date().toISOString()
         });
 
@@ -78,14 +78,12 @@ export default function UploadSection({ className, ...props }: React.ComponentPr
         if (insertWatermarkError) return throwAlert(insertWatermarkError);
 
         setUploading(false);
+        console.error("DECREASE");
         await decreaseCredit(user);
-        router.push(`/editor?medium=${uuid}&watermark=${uuid}`);
+        router.push(`/editor?medium=${uuidMedium}&watermark=${uuidWatermark}`);
     };
 
-    const throwAlert = (err: PostgrestError | StorageError | null) => {
-        console.error(err);
-        toast.error('Upload failed!');
-    };
+
 
     return (
         <div className={cn("flex flex-col items-center min-h-screen p-10 bg-blend-darken", className)} {...props}>
