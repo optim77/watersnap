@@ -1,9 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
-import { createServerClient } from "@supabase/ssr";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
 export async function POST(req: NextRequest) {
     const body = await req.text();
     const sig = req.headers.get("stripe-signature")!;
@@ -17,12 +11,17 @@ export async function POST(req: NextRequest) {
             process.env.STRIPE_WEBHOOK_SECRET!
         );
     } catch (err) {
-        return NextResponse.json({ error: `Webhook Error: ${(err as Error).message}` }, { status: 400 });
+        console.error("❌ Webhook signature verification failed:", err);
+        return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    // Obsługa zakończonej płatności
+    console.log("✅ Webhook received:", event.type);
+
     if (event.type === "checkout.session.completed") {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        console.log("🎯 Processing checkout.session.completed");
+        console.log("🔍 Metadata:", session.metadata);
 
         const planId = session.metadata?.plan_id;
         const userId = session.metadata?.user_id;
@@ -39,36 +38,51 @@ export async function POST(req: NextRequest) {
             }
         );
 
-        // Pobierz plan
-        const { data: plan } = await supabase
+        const { data: plan, error: planError } = await supabase
             .from("plans")
             .select("*")
             .eq("id", planId)
             .single();
 
-        if (!plan) {
+        if (planError) {
+            console.error("❌ Plan not found:", planError.message);
             return NextResponse.json({ error: "Plan not found" }, { status: 404 });
         }
 
-        // Dodaj kredyty do użytkownika (lub zaktualizuj)
-        await supabase
-            .from("credits")
-            .upsert({
-                user: userId,
-                credits: plan.credits, // zakładam że dodałeś pole "credits" w tabeli plans
-            }, {
-                onConflict: "user",
-                ignoreDuplicates: false,
-            });
+        console.log("✅ Plan found:", plan);
 
-        // (Opcjonalnie) zapisz subskrypcję
-        await supabase.from("subscriptions").insert({
+        const { error: creditError } = await supabase
+            .from("credits")
+            .upsert(
+                {
+                    user: userId,
+                    credits: plan.credits,
+                },
+                {
+                    onConflict: "user",
+                    ignoreDuplicates: false,
+                }
+            );
+
+        if (creditError) {
+            console.error("❌ Failed to upsert credits:", creditError.message);
+        } else {
+            console.log("✅ Credits added.");
+        }
+
+        const { error: subError } = await supabase.from("user_plan").insert({
             user: userId,
             plan: plan.id,
             created_at: new Date().toISOString(),
             end_at: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString(),
             count_update: 0,
         });
+
+        if (subError) {
+            console.error("❌ Failed to insert subscription:", subError.message);
+        } else {
+            console.log("✅ Subscription inserted.");
+        }
     }
 
     return NextResponse.json({ received: true });
